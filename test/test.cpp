@@ -17,15 +17,16 @@ std::vector<char> ReadAllData(const char* path)
     if (!file.read(buffer.data(), size)) {
         throw std::runtime_error("Failed to open file");
     }
-    return buffer;    
+    return buffer;
 }
 
 void* TestFunc(void* arg)
 {
+    const char* path = reinterpret_cast<const char*>(arg);
     for (int i = 0; i < 2000; i++)
     {
         // Load compiled library
-        void* lib = dlopen("build/liblinoodle.so", RTLD_LAZY);
+        void* lib = dlopen(path, RTLD_LAZY);
         if (lib == nullptr) {
             std::cout << "dlopen failed: " << dlerror() << std::endl;
             return nullptr;
@@ -66,20 +67,24 @@ void* TestFunc(void* arg)
     return nullptr;
 }
 
-int main()
+int main(int argc, char** argv)
 {
     // Spin up multiple threads to run the test
     const int NUM_THREADS = 8;
+    const char* path = "liboodle_28.so";
+    if (argc > 1) {
+        path = argv[1];
+    }
     pthread_t threads[NUM_THREADS];
     for (int i = 0; i < NUM_THREADS; i++) {
-        pthread_create(&threads[i], nullptr, TestFunc, nullptr);
+        pthread_create(&threads[i], nullptr, TestFunc, reinterpret_cast<void*>(const_cast<char*>(path)));
     }
 
     // Wait for the threads to finish
     for (int i = 0; i < NUM_THREADS; i++) {
         pthread_join(threads[i], nullptr);
     }
-    
+
     std::cout << "Test succeeded!" << std::endl;
     return 0;
 }
