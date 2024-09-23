@@ -3,6 +3,7 @@
 #include <iostream>
 #include <string.h>
 #include <dlfcn.h>
+#include <cstdint>
 #include <pthread.h>
 
 typedef size_t(*tDecompressFunc)(uint8_t* srcBuf, size_t srcLen, uint8_t* dstBuf, size_t dstLen, int64_t unk1, int64_t unk2, int64_t unk3, int64_t unk4, int64_t unk5, int64_t unk6, int64_t unk7, int64_t unk8, int64_t unk9, int64_t unk10);

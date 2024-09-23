@@ -7,6 +7,7 @@
 #include <pe-parse/parse.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <utility>
 
 MappedMemory::MappedMemory(void* mapping, size_t size) :
     m_mapping(mapping),
