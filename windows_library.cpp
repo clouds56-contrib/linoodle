@@ -8,6 +8,9 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <utility>
+#include <fstream>
+#include <filesystem>
+#include <iostream>
 
 MappedMemory::MappedMemory(void* mapping, size_t size) :
     m_mapping(mapping),
@@ -110,8 +113,10 @@ void RelocateImage(const MappedMemory& imageMapping, const ParsedPeRef& pe)
 
 WindowsLibrary WindowsLibrary::Load(const char* path)
 {
+    std::string fullPath = FindLibrary(path);
+
     // Parse the PE
-    ParsedPeRef pe(peparse::ParsePEFromFile(path), peparse::DestructParsedPE);
+    ParsedPeRef pe(peparse::ParsePEFromFile(fullPath.c_str()), peparse::DestructParsedPE);
     if (!pe) {
         throw std::runtime_error("Failed to parse PE");
     }
@@ -204,3 +209,96 @@ WindowsLibrary WindowsLibrary::Load(const char* path)
 
     return WindowsLibrary(std::move(imageMapping), std::move(ctx.exports), entryPoint);
 }
+
+std::string WindowsLibrary::FindLibrary(const std::string& name) {
+    if (name.rfind("/", 0) == 0 || name.rfind("./", 0) == 0) {
+        return name;
+    }
+
+    if (s_searchPaths.empty()) {
+        // initalize search paths
+        if (const char* envPath = getenv("LD_LIBRARY_PATH")) {
+            std::istringstream envPathStream(envPath);
+            std::string path;
+            while (std::getline(envPathStream, path, ':')) {
+                s_searchPaths.push_back(path);
+            }
+        }
+        // TODO: should we parse /etc/ld.so.conf and /etc/ld.so.conf.d/*
+
+        s_searchPaths.push_back("/lib");
+        s_searchPaths.push_back("/usr/lib");
+
+        // current executable path
+        char buffer[4096];
+        ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer));
+        if (len != -1) {
+            std::string currentPath = std::string(buffer, len);
+            s_searchPaths.push_back(currentPath.substr(0, currentPath.rfind('/')));
+        }
+
+        // current library path
+        void* currentAddress = reinterpret_cast<void*>(&WindowsLibrary::FindLibrary);
+        try {
+            std::filesystem::directory_iterator currentLibraryPath("/proc/self/map_files");
+            for (const auto& entry : currentLibraryPath) {
+                // entry.path().string();
+                const std::string entryPath = entry.path().string();
+                // parse range /proc/self/map_files/{low}-{high}
+                void* addressLow = nullptr;
+                void* addressHigh = nullptr;
+                std::istringstream iss(entryPath.substr(entryPath.find_last_of('/') + 1));
+                char dash;
+                iss >> std::hex >> addressLow >> dash >> addressHigh;
+                if (addressLow == nullptr || addressHigh == nullptr) {
+                    continue;
+                }
+                if (currentAddress < addressLow || currentAddress >= addressHigh) {
+                    continue;
+                }
+                ssize_t len = readlink(entryPath.c_str(), buffer, sizeof(buffer));
+                if (len != -1) {
+                    std::string currentPath = std::string(buffer, len);
+                    s_searchPaths.push_back(currentPath.substr(0, currentPath.rfind('/')));
+                    break;
+                }
+            }
+        } catch(const std::exception& e) {
+            std::cerr << e.what() << '\n';
+        }
+
+        // current working directory (absolute path)
+        char* cwd = getcwd(buffer, sizeof(buffer));
+        if (cwd != nullptr) {
+            s_searchPaths.push_back(cwd);
+        }
+
+        // debug view
+        if (const char* debugFlag = getenv("LINOODLE_DEBUG")) {
+            if (std::string(debugFlag) == "1") {
+                for (const auto& path : s_searchPaths) {
+                    std::cerr << "search path: " << path << std::endl;
+                }
+            }
+        }
+    }
+
+    std::vector<std::string> candidates = { name };
+
+    if (name.size() < 4 || name.compare(name.size() - 4, 4, ".dll") != 0) {
+        candidates.push_back(name + ".dll");
+    }
+
+    for (const auto& path : s_searchPaths) {
+        for (const auto& candidate : candidates) {
+            std::string fullPath = path + "/" + candidate;
+            if (access(fullPath.c_str(), F_OK) == 0) {
+                return fullPath;
+            }
+        }
+    }
+
+    return name;
+}
+
+std::vector<std::string> WindowsLibrary::s_searchPaths;

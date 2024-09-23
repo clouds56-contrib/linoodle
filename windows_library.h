@@ -3,6 +3,7 @@
 #include "windows_api.h"
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 class MappedMemory {
 public:
@@ -36,9 +37,11 @@ public:
 
     static void SetupCall();
     static WindowsLibrary Load(const char* path);
+    static std::string FindLibrary(const std::string& name);
 private:
     MappedMemory m_mapping;
     std::unordered_map<std::string, void*> m_exports;
     tEntryPoint m_entryPoint;
     static __thread TIB s_tib;
+    static std::vector<std::string> s_searchPaths;
 };
