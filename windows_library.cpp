@@ -1,7 +1,12 @@
 #include "windows_library.h"
 #include "windows_api.h"
+#if defined(__linux__)
 #include <asm/prctl.h>
 #include <asm/unistd_64.h>
+#elif defined(__MACH__) || defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <dlfcn.h>
+#endif
 #include <cstring>
 #include <memory>
 #include <pe-parse/parse.h>
@@ -9,7 +14,6 @@
 #include <unistd.h>
 #include <utility>
 #include <fstream>
-#include <filesystem>
 #include <iostream>
 
 MappedMemory::MappedMemory(void* mapping, size_t size) :
@@ -66,11 +70,27 @@ void* WindowsLibrary::GetBaseAddress()
     return m_mapping;
 }
 
+#if defined(__MACH__) || defined(__APPLE__)
+static pthread_key_t tibKey;
+static pthread_once_t tibKeyOnce = PTHREAD_ONCE_INIT;
+static void MakeTibKey() {
+    pthread_key_create(&tibKey, nullptr);
+}
+#endif
+
 void WindowsLibrary::SetupCall()
 {
     // Setup gs to point to a fake TIB structure
     memset(&s_tib, 0, sizeof(TIB));
+#if defined(__linux__)
     syscall(__NR_arch_prctl, ARCH_SET_GS, (void*)&s_tib);
+#elif defined(__MACH__) || defined(__APPLE__)
+    // macOS does not have a direct equivalent to Linux's arch_prctl for setting GS.
+    // Instead, we use the thread-specific data (TSD) APIs to achieve a similar effect.
+
+    pthread_once(&tibKeyOnce, MakeTibKey);
+    pthread_setspecific(tibKey, &s_tib);
+#endif
 }
 
 using ParsedPeRef = std::unique_ptr<peparse::parsed_pe, void (*)(peparse::parsed_pe*)>;
@@ -229,42 +249,28 @@ std::string WindowsLibrary::FindLibrary(const std::string& name) {
         s_searchPaths.push_back("/lib");
         s_searchPaths.push_back("/usr/lib");
 
-        // current executable path
         char buffer[4096];
+        void* currentAddress = reinterpret_cast<void*>(&WindowsLibrary::FindLibrary);
+#if defined(__linux__)
+        // current executable path
         ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer));
         if (len != -1) {
             std::string currentPath = std::string(buffer, len);
             s_searchPaths.push_back(currentPath.substr(0, currentPath.rfind('/')));
         }
-
+#elif defined(__MACH__) || defined(__APPLE__)
+        // current executable path
+        uint32_t size = sizeof(buffer);
+        if (_NSGetExecutablePath(buffer, &size) == 0) {
+            std::string currentPath = std::string(buffer);
+            s_searchPaths.push_back(currentPath.substr(0, currentPath.rfind('/')));
+        }
+#endif
         // current library path
-        void* currentAddress = reinterpret_cast<void*>(&WindowsLibrary::FindLibrary);
-        try {
-            std::filesystem::directory_iterator currentLibraryPath("/proc/self/map_files");
-            for (const auto& entry : currentLibraryPath) {
-                // entry.path().string();
-                const std::string entryPath = entry.path().string();
-                // parse range /proc/self/map_files/{low}-{high}
-                void* addressLow = nullptr;
-                void* addressHigh = nullptr;
-                std::istringstream iss(entryPath.substr(entryPath.find_last_of('/') + 1));
-                char dash;
-                iss >> std::hex >> addressLow >> dash >> addressHigh;
-                if (addressLow == nullptr || addressHigh == nullptr) {
-                    continue;
-                }
-                if (currentAddress < addressLow || currentAddress >= addressHigh) {
-                    continue;
-                }
-                ssize_t len = readlink(entryPath.c_str(), buffer, sizeof(buffer));
-                if (len != -1) {
-                    std::string currentPath = std::string(buffer, len);
-                    s_searchPaths.push_back(currentPath.substr(0, currentPath.rfind('/')));
-                    break;
-                }
-            }
-        } catch(const std::exception& e) {
-            std::cerr << e.what() << '\n';
+        Dl_info dlInfo;
+        if (dladdr(currentAddress, &dlInfo)) {
+            std::string currentPath = std::string(dlInfo.dli_fname);
+            s_searchPaths.push_back(currentPath.substr(0, currentPath.rfind('/')));
         }
 
         // current working directory (absolute path)

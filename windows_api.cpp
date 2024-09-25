@@ -1,7 +1,15 @@
 #include "windows_api.h"
 #include <unistd.h>
+#if defined(__linux__)
 #include <malloc.h>
 #include <asm/unistd_64.h>
+#elif defined(__MACH__) || defined(__APPLE__)
+#include <locale.h>
+#include <malloc/malloc.h>
+#if not defined(PTHREAD_MUTEX_T_TOO_LARGE)
+#define PTHREAD_MUTEX_T_TOO_LARGE
+#endif
+#endif
 #include <sys/syscall.h>
 #include <string.h>
 #include <time.h>
@@ -88,9 +96,12 @@ BOOL WINAPI HeapFree(HANDLE hHeap, uint32_t dwFlags, void* lpMem)
     return TRUE;
 }
 
-size_t WINAPI HeapSize(HANDLE hHeap, DWORD dwFlags, PVOID lpMem)
-{
+size_t WINAPI HeapSize(HANDLE hHeap, DWORD dwFlags, PVOID lpMem) {
+#if defined(__linux__)
     return malloc_usable_size(lpMem);
+#elif defined(__MACH__) || defined(__APPLE__)
+    return malloc_size(lpMem); // Use malloc_size for macOS
+#endif
 }
 
 HANDLE WINAPI GetProcessHeap()
@@ -100,7 +111,11 @@ HANDLE WINAPI GetProcessHeap()
 
 DWORD WINAPI GetCurrentThreadId()
 {
+#if defined(__linux__)
     return syscall(__NR_gettid);
+#elif defined(__MACH__) || defined(__APPLE__)
+    return pthread_mach_thread_np(pthread_self());
+#endif
 }
 
 DWORD WINAPI GetCurrentProcessId()
@@ -121,6 +136,7 @@ BOOL WINAPI QueryPerformanceCounter(LARGE_INTEGER* lpPerformanceCount)
     return TRUE;
 }
 
+#if not defined(PTHREAD_MUTEX_T_TOO_LARGE)
 static_assert(sizeof(pthread_mutex_t) <= 40, "pthread_mutex_t is not large enough"); // 40 == sizeof(CRITICAL_SECTION) on Windows
 BOOL WINAPI InitializeCriticalSectionAndSpinCount(PVOID lpCriticalSection, DWORD dwSpinCount)
 {
@@ -145,6 +161,38 @@ void WINAPI DeleteCriticalSection(PVOID lpCriticalSection)
 {
     pthread_mutex_destroy(reinterpret_cast<pthread_mutex_t*>(lpCriticalSection));
 }
+#else
+// on macos sizeof(pthread_mutex_t) == 64, cannot fit in CRITICAL_SECTION
+static_assert(sizeof(pthread_mutex_t*) <= 40, "CRITICAL_SECTION is not large enough"); // 40 == sizeof(CRITICAL_SECTION) on Windows
+BOOL WINAPI InitializeCriticalSectionAndSpinCount(PVOID lpCriticalSection, DWORD dwSpinCount)
+{
+    void* mutex = malloc(sizeof(pthread_mutex_t));
+    if (mutex == nullptr) {
+        return FALSE;
+    }
+    reinterpret_cast<void**>(lpCriticalSection)[0] = mutex;
+    return pthread_mutex_init(reinterpret_cast<pthread_mutex_t*>(mutex), nullptr) == 0;
+}
+
+void WINAPI EnterCriticalSection(PVOID lpCriticalSection)
+{
+    if (pthread_mutex_lock(reinterpret_cast<pthread_mutex_t**>(lpCriticalSection)[0]) != 0) {
+        abort();
+    }
+}
+
+void WINAPI LeaveCriticalSection(PVOID lpCriticalSection)
+{
+    if (pthread_mutex_unlock(reinterpret_cast<pthread_mutex_t**>(lpCriticalSection)[0]) != 0) {
+        abort();
+    }
+}
+
+void WINAPI DeleteCriticalSection(PVOID lpCriticalSection)
+{
+    pthread_mutex_destroy(reinterpret_cast<pthread_mutex_t**>(lpCriticalSection)[0]);
+}
+#endif
 
 DWORD WINAPI TlsAlloc()
 {
