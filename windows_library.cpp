@@ -9,8 +9,8 @@
 #include <unistd.h>
 #include <utility>
 #include <fstream>
-#include <filesystem>
 #include <iostream>
+#include <dlfcn.h>
 
 MappedMemory::MappedMemory(void* mapping, size_t size) :
     m_mapping(mapping),
@@ -229,8 +229,8 @@ std::string WindowsLibrary::FindLibrary(const std::string& name) {
         s_searchPaths.push_back("/lib");
         s_searchPaths.push_back("/usr/lib");
 
-        // current executable path
         char buffer[4096];
+        // current executable path
         ssize_t len = readlink("/proc/self/exe", buffer, sizeof(buffer));
         if (len != -1) {
             std::string currentPath = std::string(buffer, len);
@@ -238,33 +238,10 @@ std::string WindowsLibrary::FindLibrary(const std::string& name) {
         }
 
         // current library path
-        void* currentAddress = reinterpret_cast<void*>(&WindowsLibrary::FindLibrary);
-        try {
-            std::filesystem::directory_iterator currentLibraryPath("/proc/self/map_files");
-            for (const auto& entry : currentLibraryPath) {
-                // entry.path().string();
-                const std::string entryPath = entry.path().string();
-                // parse range /proc/self/map_files/{low}-{high}
-                void* addressLow = nullptr;
-                void* addressHigh = nullptr;
-                std::istringstream iss(entryPath.substr(entryPath.find_last_of('/') + 1));
-                char dash;
-                iss >> std::hex >> addressLow >> dash >> addressHigh;
-                if (addressLow == nullptr || addressHigh == nullptr) {
-                    continue;
-                }
-                if (currentAddress < addressLow || currentAddress >= addressHigh) {
-                    continue;
-                }
-                ssize_t len = readlink(entryPath.c_str(), buffer, sizeof(buffer));
-                if (len != -1) {
-                    std::string currentPath = std::string(buffer, len);
-                    s_searchPaths.push_back(currentPath.substr(0, currentPath.rfind('/')));
-                    break;
-                }
-            }
-        } catch(const std::exception& e) {
-            std::cerr << e.what() << '\n';
+        Dl_info dlInfo;
+        if (dladdr(reinterpret_cast<void*>(&WindowsLibrary::FindLibrary), &dlInfo)) {
+            std::string currentPath = std::string(dlInfo.dli_fname);
+            s_searchPaths.push_back(currentPath.substr(0, currentPath.rfind('/')));
         }
 
         // current working directory (absolute path)

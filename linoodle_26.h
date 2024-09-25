@@ -10,14 +10,16 @@
     typedef __attribute__((ms_abi)) size_t (*tCompress)(int64_t codec, uint8_t* src_buf, size_t src_len, uint8_t* dst_buf, int64_t level, void* opts, void* dictionary_base, void* lrm, void* scratch, size_t scratch_size); \
     typedef __attribute__((ms_abi)) void* (*tCompressOptions_GetDefault)(int64_t codec, int64_t level); \
     typedef __attribute__((ms_abi)) size_t (*tGetCompressedBufferSizeNeeded)(size_t src_len); \
-    typedef __attribute__((ms_abi)) size_t (*tGetDecodeBufferSize)(size_t src_len, bool corruption_possible);
+    typedef __attribute__((ms_abi)) size_t (*tGetDecodeBufferSize)(size_t src_len, bool corruption_possible); \
+// #end define __OODLE_API__TYPEDEF__
 
 #define __OODLE_API__MEMBER_INIT__ \
     m_Decompress = reinterpret_cast<tDecompress>(m_oodleLib.GetExport("OodleLZ_Decompress")); \
     m_Compress = reinterpret_cast<tCompress>(m_oodleLib.GetExport("OodleLZ_Compress")); \
     m_CompressOptions_GetDefault = reinterpret_cast<tCompressOptions_GetDefault>(m_oodleLib.GetExport("OodleLZ_CompressOptions_GetDefault")); \
     m_GetCompressedBufferSizeNeeded = reinterpret_cast<tGetCompressedBufferSizeNeeded>(m_oodleLib.GetExport("OodleLZ_GetCompressedBufferSizeNeeded")); \
-    m_GetDecodeBufferSize = reinterpret_cast<tGetDecodeBufferSize>(m_oodleLib.GetExport("OodleLZ_GetDecodeBufferSize"));
+    m_GetDecodeBufferSize = reinterpret_cast<tGetDecodeBufferSize>(m_oodleLib.GetExport("OodleLZ_GetDecodeBufferSize")); \
+// #end define __OODLE_API__MEMBER_INIT__
 
 #define __OODLE_API__MEMBER_METHODS__ \
     size_t Decompress(uint8_t* src_buf, size_t src_len, uint8_t* dst_buf, size_t dst_len, int64_t fuzz, int64_t crc, int64_t verbose, uint8_t* dec_buf_base, size_t dec_buf_size, void* cb, void* cb_ctx, void* scratch, size_t scratch_size, int64_t thread_phase) { \
@@ -39,14 +41,16 @@
     size_t GetDecodeBufferSize(size_t src_len, bool corruption_possible) { \
         WindowsLibrary::SetupCall(); \
         return m_GetDecodeBufferSize(src_len, corruption_possible); \
-    }
+    } \
+// #end define __OODLE_API__MEMBER_METHODS__
 
 #define __OODLE_API__MEMBER_DECLS__ \
     tDecompress m_Decompress; /* for OODLE_26::OodleLZ_Decompress */ \
     tCompress m_Compress; /* for OODLE_26::OodleLZ_Compress */ \
     tCompressOptions_GetDefault m_CompressOptions_GetDefault; /* for OODLE_26::OodleLZ_CompressOptions_GetDefault */ \
     tGetCompressedBufferSizeNeeded m_GetCompressedBufferSizeNeeded; /* for OODLE_26::OodleLZ_GetCompressedBufferSizeNeeded */ \
-    tGetDecodeBufferSize m_GetDecodeBufferSize; /* for OODLE_26::OodleLZ_GetDecodeBufferSize */
+    tGetDecodeBufferSize m_GetDecodeBufferSize; /* for OODLE_26::OodleLZ_GetDecodeBufferSize */ \
+// #end define __OODLE_API__MEMBER_DECLS__
 
 #define __OODLE_API__EXTERN_FUNCS__ \
     extern "C" size_t OodleLZ_Decompress(uint8_t* src_buf, size_t src_len, uint8_t* dst_buf, size_t dst_len, int64_t fuzz, int64_t crc, int64_t verbose, uint8_t* dec_buf_base, size_t dec_buf_size, void* cb, void* cb_ctx, void* scratch, size_t scratch_size, int64_t thread_phase) { \
@@ -63,4 +67,5 @@
     } \
     extern "C" size_t OodleLZ_GetDecodeBufferSize(size_t src_len, bool corruption_possible) { \
         return g_oodleWrapper.GetDecodeBufferSize(src_len, corruption_possible); \
-    }
+    } \
+// #end define __OODLE_API__EXTERN_FUNCS__

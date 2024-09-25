@@ -16,7 +16,7 @@ OODLE_API_DECLARE(TYPEDEF)
 class OodleWrapper {
 public:
     OodleWrapper() :
-        m_oodleLib(WindowsLibrary::Load("oo2core_6_win64.dll"))
+        m_oodleLib(WindowsLibrary::Load(OODLE_DLL_NAME))
     {
         OODLE_API_DECLARE(MEMBER_INIT)
     }
